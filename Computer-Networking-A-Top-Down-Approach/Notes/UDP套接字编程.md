@@ -17,16 +17,3 @@
 [UDPClient.py](source/UDPClient.py)
 
 [UDPServer.py](source/UDPServer.py)
-
-## 运行
-
-先在一台机器上启动服务器程序，然后在另一台机器上启动客户端程序。运行效果如下：
-
-**服务器端：**
-
-![](image/UDPServer.png)
-
-**客户端：**
-
-![](image/UDPClient.png)
-
