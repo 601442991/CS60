@@ -51,5 +51,5 @@ SMTP协议即简单邮件传输协议，允许用户按照标准发送/接收邮
 
 **QQ邮箱:**
 
-![QQMail](image/QQMail.jpg)
+![QQMail](image/QQMail.png)
 
