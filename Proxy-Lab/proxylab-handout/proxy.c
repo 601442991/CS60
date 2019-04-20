@@ -38,14 +38,24 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(argv[1]);  printf("listenfd: %d\n", listenfd);
     while(1) {
         clientlen = sizeof(clientaddr);
-	    int connfd = Accept(listenfd, (SA*)&clientaddr, &clientlen);
-        doit(connfd);
-	    Close(connfd);  
+        int *connfd = (int*)malloc(sizeof(int));
+	    *connfd = Accept(listenfd, (SA*)&clientaddr, &clientlen);
+        pthread_t tidp;
+        void *thread(void *connfd);
+        Pthread_create(&tidp, NULL, thread, (void*)connfd);
+        Pthread_detach(tidp);
+        //doit(connfd);
+	    //Close(connfd);  
         printf("close done\n\n"); fflush(stdout);
     }
     return 0;
 }
-
+void *thread(void *connfd) {
+    doit(*(int*)connfd);
+    Close(*(int*)connfd);
+    free(connfd);
+    return NULL;
+}
 
 
 void doit(int connfd) {
