@@ -24,10 +24,6 @@ void clienterror(int fd, char *cause, char *errnum,
 		 char *shortmsg, char *longmsg);
 
 
-// cache.h
-int get(char *url, int read_write, int connfd);
-void put(char *url, char *data);
-void cache_init();
 
 int main(int argc, char **argv)
 {
@@ -38,13 +34,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
 	    exit(1);
     }
-    
-    cache_init();
-
-    port = atoi(argv[1]);               
-    printf("port: %d\n", port);
-    listenfd = Open_listenfd(argv[1]);  
-    printf("listenfd: %d\n", listenfd);
+    port = atoi(argv[1]);               printf("port: %d\n", port);
+    listenfd = Open_listenfd(argv[1]);  printf("listenfd: %d\n", listenfd);
     while(1) {
         clientlen = sizeof(clientaddr);
         int *connfd = (int*)malloc(sizeof(int));
@@ -55,7 +46,7 @@ int main(int argc, char **argv)
         Pthread_detach(tidp);
         //doit(connfd);
 	    //Close(connfd);  
-        //printf("close done\n\n"); fflush(stdout);
+        printf("close done\n\n"); fflush(stdout);
     }
     return 0;
 }
@@ -88,26 +79,16 @@ void doit(int connfd) {
                     "Proxy does not implement this method");
         return;
     }              
- 
-    if(get(uri, 1, connfd) != -1) {
-        printf("in cache\n");
-        return ;    
-    } // in cache
-    else {
-        printf("not in cache\n");
-    }
-    
+
     //parse the uri to get hostname, file path, port 
     parse_uri(uri, hostname, path, &port); 
     //build the http header which will send to the end server
     build_http_header(endserver_http_header, hostname, path, port, &rio); 
     
-
     char portStr[10];
     sprintf(portStr, "%d", port);
     //connect to the end server
-    end_serverfd = Open_clientfd(hostname, portStr);
-    //printf("end_server = %d\n", end_serverfd); 
+    end_serverfd = Open_clientfd(hostname, portStr); 
     if(end_serverfd < 0){ 
         printf("connection failed\n"); 
         return; 
@@ -117,20 +98,12 @@ void doit(int connfd) {
     //write the http header to endserver
     Rio_writen(end_serverfd, endserver_http_header, strlen(endserver_http_header)); 
     //receive message from end server and send to the client
-    size_t n, size_buf = 0; 
-    char cachebuf[MAX_OBJECT_SIZE];
+    size_t n; 
     while((n = Rio_readlineb(&server_rio, buf, MAXLINE)) != 0) { 
-        //printf("proxy received %d bytes,then send\n", (int)n); 
-        size_buf += n;
-        if(size_buf < MAX_CACHE_SIZE) strcat(cachebuf, buf);
+        printf("proxy received %d bytes,then send\n", (int)n); 
         Rio_writen(connfd, buf, n); 
     } 
     Close(end_serverfd);
-
-    if(size_buf < MAX_OBJECT_SIZE) {
-        put(uri, cachebuf);
-    }
-
 }
 
 //parse the uri to get hostname, port, file path 
@@ -144,7 +117,6 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
     if(pos2 != NULL) { //"hostname:port" + "path"
         *pos2 = '\0'; 
         sscanf(pos, "%s", hostname); 
-        *pos2 = ':';
         sscanf(pos2+1, "%d%s", port, path); 
     } 
     else { //"hostname"+"path"
@@ -211,125 +183,4 @@ void clienterror(int fd, char *cause, char *errnum,
     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
     Rio_writen(fd, buf, strlen(buf));
     Rio_writen(fd, body, strlen(body));
-}
-
-
-//////////////////////////////////////
-
-
-
-/* Recommended max cache and object sizes */
-#define MAX_CACHE_SIZE 1049000
-#define MAX_OBJECT_SIZE 102400
-#define URL_LENGTH 100
-#define N (MAX_CACHE_SIZE/MAX_OBJECT_SIZE)
-
-
-/*cache function*/
-void cache_init();
-int cache_find(char *url);
-int cache_eviction();
-void cache_LRU(int index);
-void cache_uri(char *uri, char *buf);
-void readerPre(int i);
-void readerAfter(int i);
-
-struct Cache {
-    int used;
-    char url[URL_LENGTH];
-    char data[MAX_OBJECT_SIZE];
-    int time;
-    
-    int readCnt;            /*count of readers*/
-    sem_t wmutex;           /*protects accesses to cache*/
-    sem_t rdcntmutex;       /*protects accesses to readcnt*/
-
-    //int writeCnt;
-    //sem_t wtcntMutex;
-    //sem_t queue;
-};
-struct Cache cache[N];
-int time_now;
-
-void R_pre(int i) {
-    P(&cache[i].rdcntmutex);
-    cache[i].readCnt++;
-    if(cache[i].readCnt == 1)
-        P(&cache[i].wmutex);
-    V(&cache[i].rdcntmutex);
-}
-void R_after(int i) {
-    P(&cache[i].rdcntmutex);
-    cache[i].readCnt--;
-    if(cache[i].readCnt == 0)
-        V(&cache[i].wmutex);
-    V(&cache[i].rdcntmutex);
-}
-void W_pre(int i) {
-    P(&cache[i].wmutex);
-}
-void W_after(int i) {
-    V(&cache[i].wmutex);
-}
-
-void cache_init() {
-    for(int i = 0; i < N; i++) {
-        cache[i].used = 0;
-        Sem_init(&cache[i].wmutex, 0, 1);
-        Sem_init(&cache[i].rdcntmutex, 0, 1);
-        cache[i].readCnt = 0;
-    }
-}
-
-int get(char *url, int read_write, int connfd) {
-    for(int i = 0; i < N; i++) { 
-        R_pre(i);
-        if(cache[i].used) 
-            printf("%d is used: %s\n", i, cache[i].url);
-        if(cache[i].used && !strcmp(url, cache[i].url)) {
-            cache[i].time = ++time_now;//atomic
-            if(read_write == 1)  // read 
-                Rio_writen(connfd, cache[i].data, strlen(cache[i].data));
-            R_after(i);
-            return i;
-        }
-        R_after(i);
-    }
-    return -1;
-}
-
-void put(char *url, char *data) {
-    printf("put: %s\n", url);
-    /*
-    int pos = get(url, 0, -1);
-    if(pos != -1) {
-        W_pre(pos);
-        printf("pos != -1, put in %d\n", pos);
-        strcpy(cache[pos].data, data);
-        W_after(pos);
-        return ;
-    }
-    */
-    int pos = -1;
-    int min_time = 0x3f3f3f3f;
-    for(int i = 0; i < N; i++) {
-        R_pre(i);
-        if(!cache[i].used) {
-            pos = i;
-            R_after(i);
-            break ;
-        }
-        if(cache[i].used && cache[i].time < min_time) {
-            min_time = cache[i].time;
-            pos = i;
-        }
-        R_after(i);
-    }
-
-    W_pre(pos);
-    printf("put in %d\n", pos);
-    cache[pos].used = 1;
-    strcpy(cache[pos].url, url);
-    strcpy(cache[pos].data, data);
-    W_after(pos);
 }
